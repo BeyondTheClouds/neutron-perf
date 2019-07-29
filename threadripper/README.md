@@ -1,7 +1,7 @@
 # Some steps to remember
 
 1. Define environment variable `OSPROFILER_HMAC_KEY` with the value of
-`OSPROFILER_HMAC_KEY` in `current/password.yml`. This has to be done before
+`osprofiler_secret` in `current/password.yml`. This has to be done before
 defining the test environment in Rally (Rally venv).
 
 2. Define the test environment in Rally:
