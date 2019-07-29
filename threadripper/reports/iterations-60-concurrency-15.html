@@ -1,0 +1,1083 @@
+<!doctype html>
+<html ng-app="App">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Rally version 1.6.1~dev5">
+  <title>Rally | Rally Task Report</title>
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/nvd3/1.1.15-beta/nv.d3.min.css">
+  <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.3/angular.min.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.4.13/d3.min.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/nvd3/1.1.15-beta/nv.d3.min.js"></script>
+  
+
+  <script type="text/javascript">
+    "use strict";
+    function changeFrameHeight(){
+  var ifm= document.getElementById("embeddedChart");
+  ifm.height=document.documentElement.clientHeight;
+  ifm.width=document.documentElement.clientWidth;
+}
+function hideEmbeddedChartLoading(){
+  document.getElementById('embeddedChartLoader').style.display = 'none';
+}
+window.onresize=function(){
+  changeFrameHeight();
+}
+var widgetDirective = function($compile) {
+  var Chart = {
+    _render: function(node, data, chart, do_after){
+      nv.addGraph(function() {
+        d3.select(node)
+          .datum(data).transition().duration(0)
+          .call(chart);
+        if (typeof do_after === "function") {
+          do_after(node, chart)
+        }
+        nv.utils.windowResize(chart.update);
+      })
+    },
+    _widgets: {
+      Pie: "pie",
+      StackedArea: "stack",
+      Lines: "lines",
+      Histogram: "histogram"
+    },
+    get_chart: function(widget) {
+      if (widget in this._widgets) {
+        var name = this._widgets[widget];
+        return Chart[name]
+      }
+      return function() { console.log("Error: unexpected widget:", widget) }
+    },
+    pie: function(node, data, opts, do_after) {
+      var chart = nv.models.pieChart()
+        .x(function(d) { return d.key })
+        .y(function(d) { return d.values })
+        .showLabels(true)
+        .labelType("percent")
+        .donut(true)
+        .donutRatio(0.25)
+        .donutLabelsOutside(true)
+        .color(function(d){
+          if (d.data && d.data.color) { return d.data.color }
+        });
+      var colorizer = new Chart.colorizer("errors"), data_ = [];
+      for (var i in data) {
+        data_.push({key:data[i][0], values:data[i][1], color:colorizer.get_color(data[i][0])})
+      }
+      Chart._render(node, data_, chart)
+    },
+    colorizer: function(failure_key, failure_color) {
+      this.failure_key = failure_key || "failed_duration";
+      this.failure_color = failure_color || "#d62728";  // red
+      this.color_idx = -1;
+      /* NOTE(amaretskiy): this is actually a result of
+         d3.scale.category20().range(), excluding red color (#d62728)
+         which is reserved for errors */
+      this.colors = ["#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c",
+                     "#98df8a", "#ff9896", "#9467bd", "#c5b0d5", "#8c564b",
+                     "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7",
+                     "#bcbd22", "#dbdb8d", "#17becf", "#9edae5"];
+      this.get_color = function(key) {
+        if (key === this.failure_key) {
+          return this.failure_color
+        }
+        if (this.color_idx > (this.colors.length - 2)) {
+          this.color_idx = 0
+        } else {
+          this.color_idx++
+        }
+        return this.colors[this.color_idx]
+      }
+    },
+    stack: function(node, data, opts, do_after) {
+      var chart = nv.models.stackedAreaChart()
+        .x(function(d) { return d[0] })
+        .y(function(d) { return d[1] })
+        .useInteractiveGuideline(opts.guide)
+        .showControls(opts.controls)
+        .clipEdge(true);
+      chart.xAxis
+        .axisLabel(opts.xname)
+        .tickFormat(opts.xformat)
+        .showMaxMin(opts.showmaxmin);
+      chart.yAxis
+        .orient("left")
+        .tickFormat(d3.format(opts.yformat || ",.3f"));
+      var colorizer = new Chart.colorizer(), data_ = [];
+      for (var i in data) {
+        data_.push({key:data[i][0], values:data[i][1], color:colorizer.get_color(data[i][0])})
+      }
+      Chart._render(node, data_, chart, do_after);
+    },
+    lines: function(node, data, opts, do_after) {
+      var chart = nv.models.lineChart()
+        .x(function(d) { return d[0] })
+        .y(function(d) { return d[1] })
+        .useInteractiveGuideline(opts.guide)
+        .clipEdge(true);
+      chart.xAxis
+        .axisLabel(opts.xname)
+        .tickFormat(opts.xformat)
+        .rotateLabels(opts.xrotate)
+        .showMaxMin(opts.showmaxmin);
+      chart.yAxis
+        .orient("left")
+        .tickFormat(d3.format(opts.yformat || ",.3f"));
+      var colorizer = new Chart.colorizer(), data_ = [];
+      for (var i in data) {
+        data_.push({key:data[i][0], values:data[i][1], color:colorizer.get_color(data[i][0])})
+      }
+      Chart._render(node, data_, chart, do_after)
+    },
+    histogram: function(node, data, opts) {
+      var chart = nv.models.multiBarChart()
+        .reduceXTicks(true)
+        .showControls(false)
+        .transitionDuration(0)
+        .groupSpacing(0.05);
+      chart
+        .legend.radioButtonMode(true);
+      chart.xAxis
+        .axisLabel("Duration (seconds)")
+        .tickFormat(d3.format(",.2f"));
+      chart.yAxis
+        .axisLabel("Iterations (frequency)")
+        .tickFormat(d3.format("d"));
+      Chart._render(node, data, chart)
+    }
+  };
+
+  return {
+    restrict: "A",
+    scope: { data: "=" },
+    link: function(scope, element, attrs) {
+      scope.$watch("data", function(data) {
+        if (! data) { return console.log("Chart has no data to render!") }
+        if (attrs.widget === "Table") {
+          var template = "<table class='striped'><thead>" +
+            "<tr><th ng-repeat='i in data.cols track by $index'>{{i}}<tr>" +
+            "</thead><tbody>" +
+            "<tr ng-class='data.styles[$index] ? data.styles[$index] : \"\"' ng-repeat='row in data.rows track by $index'>" +
+            "<td ng-repeat='i in row track by $index'>{{i}}" +
+            "<tr>" +
+            "</tbody></table>";
+          var el = element.empty().append($compile(template)(scope)).children()[0]
+        } else if (attrs.widget === "TextArea") {
+          var template = "<div style='padding:0 0 5px' ng-repeat='str in data track by $index'>{{str}}</div><div style='height:10px'></div>";
+          var el = element.empty().append($compile(template)(scope)).children()[0]
+        }
+        else if (attrs.widget == "EmbedChart") {
+          if (typeof data === "string"){
+            // backward compatibility
+            data = {"embedded": data};
+          }
+
+          if (data.source !== undefined && data.source !== null){
+            var template = "<span><div id='embeddedChartLoader'>Loading embedded chart. Please wait...</div><iframe id='embeddedChart' frameborder='0' onload='changeFrameHeight(); hideEmbeddedChartLoading()' style='width:100%;' src='" + data.source + "'></iframe></span>";
+            var embeddedData = undefined;
+          } else {
+            var template = "<iframe scrolling='no' id='embeddedChart' frameborder='0' onload='changeFrameHeight()' style='width:100%;'></iframe>";
+            /* NOTE(chenxu): tag <\/script> in javascript string will be parsed incorrectly.
+             so we convert <\/script> to <\\/script> in python and convert it back here. */
+            var embeddedData = data.embedded.replace(/\\\/script>/ig, "\/script>");
+          }
+          var el = element.empty().append($compile(template)(scope)).children()[0];
+          if (embeddedData !== undefined) {
+            var iframe = el.contentWindow || (el.contentDocument.document || el.contentDocument);
+            iframe.document.open();
+            iframe.document.write(embeddedData);
+            iframe.document.close();
+          }
+        }
+        else {
+          var el_chart = element.addClass("chart").css({display:"block"});
+          var el = el_chart.html("<svg></svg>").children()[0];
+
+          var do_after = null;
+
+          if (attrs.widget in {StackedArea:0, Lines:0}) {
+
+            /* Hide widget if not enough data */
+            if ((! data.length) || (data[0].length < 1) || (data[0][1].length < 2)) {
+              return element.empty().css({display:"none"})
+            }
+
+            /* NOTE(amaretskiy): Dirty fix for changing chart width in case
+               if there are too long Y values that overlaps chart box. */
+            var do_after = function(node, chart){
+              var g_box = angular.element(el_chart[0].querySelector(".nv-y.nv-axis"));
+
+              if (g_box && g_box[0] && g_box[0].getBBox) {
+
+                try {
+                  // 30 is padding aroung graphs
+                  var width = g_box[0].getBBox().width + 30;
+                } catch (err) {
+                  // This happens sometimes, just skip silently
+                  return
+                }
+
+                // 890 is chart width (set by CSS)
+                if (typeof width === "number" && width > 890) {
+                  width = (890 * 2) - width;
+                  if (width > 0) {
+                    angular.element(node).css({width:width+"px"});
+                    chart.update()
+                  }
+                }
+              }
+            }
+          }
+          else if (attrs.widget === "Pie") {
+            if (! data.length) {
+              return element.empty().css({display:"none"})
+            }
+          }
+
+          var opts = {
+            xname: attrs.nameX || "",
+            xrotate: attrs.rotateX || 0,
+            yformat: attrs.formatY || ",.3f",
+            controls: attrs.controls === "true",
+            guide: attrs.guide === "true",
+            showmaxmin: attrs.showmaxmin === "true"
+          };
+          if (attrs.formatDateX) {
+            opts.xformat = function(d) { return d3.time.format(attrs.formatDateX)(new Date(d)) }
+          } else {
+            opts.xformat = d3.format(attrs.formatX || "d")
+          }
+          Chart.get_chart(attrs.widget)(el, data, opts, do_after);
+        }
+
+        if (attrs.nameY) {
+          /* NOTE(amaretskiy): Dirty fix for displaying Y-axis label correctly.
+             I believe sometimes NVD3 will allow doing this in normal way */
+          var label_y = angular.element("<div>").addClass("chart-label-y").text(attrs.nameY);
+          angular.element(el).parent().prepend(label_y)
+        }
+
+        if (attrs.description) {
+          var desc_el = angular.element("<div>").addClass(attrs.descriptionClass || "h3").text(attrs.description);
+          angular.element(el).parent().prepend(desc_el)
+        }
+
+        if (attrs.title) {
+          var title_el = angular.element("<div>").addClass(attrs.titleClass || "h2").text(attrs.title);
+          angular.element(el).parent().prepend(title_el)
+        }
+
+        angular.element(el).parent().append(angular.element("<div style='clear:both'>"))
+      });
+    }
+  }
+};
+
+    var controllerFunction = function($scope, $location) {
+        $scope.source = "{\n  \"version\": 2, \n  \"title\": \"\", \n  \"description\": \"\", \n  \"subtasks\": [\n    {\n      \"title\": \"NeutronNetworks.create_and_bind_ports\", \n      \"description\": \"\", \n      \"workloads\": [\n        {\n          \"scenario\": {\n            \"NeutronNetworks.create_and_bind_ports\": {\n              \"ports_per_network\": 2\n            }\n          }, \n          \"description\": \"Bind a given number of ports.\", \n          \"contexts\": {\n            \"networking_agents\": {}, \n            \"network\": {}, \n            \"users\": {\n              \"users_per_tenant\": 3, \n              \"tenants\": 2\n            }, \n            \"roles\": [\n              \"admin\"\n            ], \n            \"quotas\": {\n              \"neutron\": {\n                \"subnet\": -1, \n                \"network\": -1, \n                \"port\": -1\n              }\n            }\n          }, \n          \"runner\": {\n            \"constant\": {\n              \"concurrency\": 15, \n              \"times\": 60\n            }\n          }, \n          \"hooks\": [], \n          \"sla\": {\n            \"failure_rate\": {\n              \"max\": 0\n            }\n          }\n        }\n      ]\n    }\n  ]\n}";
+        $scope.scenarios = [{"runner": "constant", "hooks": [], "pos": "0", "atomic": {"pie": [["neutron.create_subnet (x2)", 0.0], ["neutron.create_port (x2)", 0.0], ["neutron.update_port (x2)", 0.0]], "iter": [["neutron.create_subnet (x2)", [[1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [10, 0], [11, 0], [12, 0], [13, 0], [14, 0], [15, 0], [16, 0], [17, 0], [18, 0], [19, 0], [20, 0], [21, 0], [22, 0], [23, 0], [24, 0], [25, 0], [26, 0], [27, 0], [28, 0], [29, 0], [30, 0], [31, 0], [32, 0], [33, 0], [34, 0], [35, 0], [36, 0], [37, 0], [38, 0], [39, 0], [40, 0], [41, 0], [42, 0], [43, 0], [44, 0], [45, 0], [46, 0], [47, 0], [48, 0], [49, 0], [50, 0], [51, 0], [52, 0], [53, 0], [54, 0], [55, 0], [56, 0], [57, 0], [58, 0], [59, 0], [60, 0]]], ["neutron.create_port (x2)", [[1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [10, 0], [11, 0], [12, 0], [13, 0], [14, 0], [15, 0], [16, 0], [17, 0], [18, 0], [19, 0], [20, 0], [21, 0], [22, 0], [23, 0], [24, 0], [25, 0], [26, 0], [27, 0], [28, 0], [29, 0], [30, 0], [31, 0], [32, 0], [33, 0], [34, 0], [35, 0], [36, 0], [37, 0], [38, 0], [39, 0], [40, 0], [41, 0], [42, 0], [43, 0], [44, 0], [45, 0], [46, 0], [47, 0], [48, 0], [49, 0], [50, 0], [51, 0], [52, 0], [53, 0], [54, 0], [55, 0], [56, 0], [57, 0], [58, 0], [59, 0], [60, 0]]], ["neutron.update_port (x2)", [[1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [9, 0], [10, 0], [11, 0], [12, 0], [13, 0], [14, 0], [15, 0], [16, 0], [17, 0], [18, 0], [19, 0], [20, 0], [21, 0], [22, 0], [23, 0], [24, 0], [25, 0], [26, 0], [27, 0], [28, 0], [29, 0], [30, 0], [31, 0], [32, 0], [33, 0], [34, 0], [35, 0], [36, 0], [37, 0], [38, 0], [39, 0], [40, 0], [41, 0], [42, 0], [43, 0], [44, 0], [45, 0], [46, 0], [47, 0], [48, 0], [49, 0], [50, 0], [51, 0], [52, 0], [53, 0], [54, 0], [55, 0], [56, 0], [57, 0], [58, 0], [59, 0], [60, 0]]]], "histogram": {"data": [[{"disabled": 0, "values": [{"y": 60, "x": 28.158}, {"y": 0, "x": 32.192}, {"y": 0, "x": 36.226}, {"y": 0, "x": 40.260000000000005}, {"y": 0, "x": 44.294}, {"y": 0, "x": 48.328}, {"y": 0, "x": 52.36200000000001}, {"y": 0, "x": 56.396}], "key": "neutron.create_subnet (x2)", "view": "Square Root Choice"}, {"disabled": 1, "values": [{"y": 60, "x": 30.253249999999998}, {"y": 0, "x": 33.4115}, {"y": 0, "x": 36.56975}, {"y": 0, "x": 39.727999999999994}, {"y": 0, "x": 42.88625}, {"y": 0, "x": 46.0445}, {"y": 0, "x": 49.202749999999995}, {"y": 0, "x": 52.361}], "key": "neutron.create_port (x2)", "view": "Square Root Choice"}, {"disabled": 2, "values": [{"y": 60, "x": 32.1305}, {"y": 0, "x": 35.06}, {"y": 0, "x": 37.9895}, {"y": 0, "x": 40.919}, {"y": 0, "x": 43.8485}, {"y": 0, "x": 46.778}, {"y": 0, "x": 49.707499999999996}, {"y": 0, "x": 52.637}], "key": "neutron.update_port (x2)", "view": "Square Root Choice"}], [{"disabled": 0, "values": [{"y": 60, "x": 28.734285714285715}, {"y": 0, "x": 33.34457142857143}, {"y": 0, "x": 37.95485714285714}, {"y": 0, "x": 42.56514285714286}, {"y": 0, "x": 47.175428571428576}, {"y": 0, "x": 51.78571428571429}, {"y": 0, "x": 56.396}], "key": "neutron.create_subnet (x2)", "view": "Sturges Formula"}, {"disabled": 1, "values": [{"y": 60, "x": 30.70442857142857}, {"y": 0, "x": 34.31385714285714}, {"y": 0, "x": 37.92328571428571}, {"y": 0, "x": 41.532714285714285}, {"y": 0, "x": 45.14214285714286}, {"y": 0, "x": 48.751571428571424}, {"y": 0, "x": 52.361}], "key": "neutron.create_port (x2)", "view": "Sturges Formula"}, {"disabled": 2, "values": [{"y": 60, "x": 32.549}, {"y": 0, "x": 35.897}, {"y": 0, "x": 39.245000000000005}, {"y": 0, "x": 42.593}, {"y": 0, "x": 45.941}, {"y": 0, "x": 49.289}, {"y": 0, "x": 52.637}], "key": "neutron.update_port (x2)", "view": "Sturges Formula"}], [{"disabled": 0, "values": [{"y": 60, "x": 28.158}, {"y": 0, "x": 32.192}, {"y": 0, "x": 36.226}, {"y": 0, "x": 40.260000000000005}, {"y": 0, "x": 44.294}, {"y": 0, "x": 48.328}, {"y": 0, "x": 52.36200000000001}, {"y": 0, "x": 56.396}], "key": "neutron.create_subnet (x2)", "view": "Rice Rule"}, {"disabled": 1, "values": [{"y": 60, "x": 30.253249999999998}, {"y": 0, "x": 33.4115}, {"y": 0, "x": 36.56975}, {"y": 0, "x": 39.727999999999994}, {"y": 0, "x": 42.88625}, {"y": 0, "x": 46.0445}, {"y": 0, "x": 49.202749999999995}, {"y": 0, "x": 52.361}], "key": "neutron.create_port (x2)", "view": "Rice Rule"}, {"disabled": 2, "values": [{"y": 60, "x": 32.1305}, {"y": 0, "x": 35.06}, {"y": 0, "x": 37.9895}, {"y": 0, "x": 40.919}, {"y": 0, "x": 43.8485}, {"y": 0, "x": 46.778}, {"y": 0, "x": 49.707499999999996}, {"y": 0, "x": 52.637}], "key": "neutron.update_port (x2)", "view": "Rice Rule"}]], "views": [{"id": 0, "name": "Square Root Choice"}, {"id": 1, "name": "Sturges Formula"}, {"id": 2, "name": "Rice Rule"}]}}, "iterations": {"pie": [["success", 60], ["errors", 0]], "iter": [["duration", [[1, 125.7669448852539], [2, 127.43374300003052], [3, 119.20507907867432], [4, 119.87525916099548], [5, 117.17113018035889], [6, 129.9593620300293], [7, 124.3491780757904], [8, 128.1455318927765], [9, 135.82937002182007], [10, 134.0615110397339], [11, 90.87320590019226], [12, 133.12045407295227], [13, 132.26630878448486], [14, 135.3617820739746], [15, 132.71011090278625], [16, 95.14727997779846], [17, 103.52823781967163], [18, 126.14267110824585], [19, 116.49788689613342], [20, 135.1419050693512], [21, 135.328439950943], [22, 120.2549660205841], [23, 138.14329314231873], [24, 87.28075385093689], [25, 127.51436400413513], [26, 112.41511797904968], [27, 130.9028639793396], [28, 114.04734182357788], [29, 139.12188911437988], [30, 104.89874815940857], [31, 122.42384004592896], [32, 137.83973598480225], [33, 134.32267904281616], [34, 117.42639303207397], [35, 104.03125095367432], [36, 105.06605410575867], [37, 136.89122486114502], [38, 84.45025706291199], [39, 132.77415585517883], [40, 126.29643988609314], [41, 135.9158229827881], [42, 131.01773595809937], [43, 129.6954538822174], [44, 110.09387493133545], [45, 106.26914191246033], [46, 114.40986895561218], [47, 108.20908904075623], [48, 114.92768788337708], [49, 117.11961388587952], [50, 109.46892094612122], [51, 112.73672795295715], [52, 117.67328214645386], [53, 102.45323014259338], [54, 113.30202293395996], [55, 112.89146709442139], [56, 107.70373010635376], [57, 95.38001585006714], [58, 84.58835697174072], [59, 102.43436908721924], [60, 98.76401400566101]]], ["idle_duration", [[1, 0.0], [2, 0.0], [3, 0.0], [4, 0.0], [5, 0.0], [6, 0.0], [7, 0.0], [8, 0.0], [9, 0.0], [10, 0.0], [11, 0.0], [12, 0.0], [13, 0.0], [14, 0.0], [15, 0.0], [16, 0.0], [17, 0.0], [18, 0.0], [19, 0.0], [20, 0.0], [21, 0.0], [22, 0.0], [23, 0.0], [24, 0.0], [25, 0.0], [26, 0.0], [27, 0.0], [28, 0.0], [29, 0.0], [30, 0.0], [31, 0.0], [32, 0.0], [33, 0.0], [34, 0.0], [35, 0.0], [36, 0.0], [37, 0.0], [38, 0.0], [39, 0.0], [40, 0.0], [41, 0.0], [42, 0.0], [43, 0.0], [44, 0.0], [45, 0.0], [46, 0.0], [47, 0.0], [48, 0.0], [49, 0.0], [50, 0.0], [51, 0.0], [52, 0.0], [53, 0.0], [54, 0.0], [55, 0.0], [56, 0.0], [57, 0.0], [58, 0.0], [59, 0.0], [60, 0.0]]]], "histogram": {"data": [[{"disabled": null, "values": [{"y": 4, "x": 91.28421106934547}, {"y": 2, "x": 98.11816507577896}, {"y": 6, "x": 104.95211908221245}, {"y": 6, "x": 111.78607308864594}, {"y": 12, "x": 118.62002709507942}, {"y": 5, "x": 125.45398110151291}, {"y": 11, "x": 132.2879351079464}, {"y": 14, "x": 139.12188911437988}], "key": "task", "view": "Square Root Choice"}], [{"disabled": null, "values": [{"y": 4, "x": 92.26049021312168}, {"y": 3, "x": 100.07072336333138}, {"y": 8, "x": 107.8809565135411}, {"y": 10, "x": 115.69118966375078}, {"y": 9, "x": 123.50142281396049}, {"y": 11, "x": 131.3116559641702}, {"y": 15, "x": 139.12188911437988}], "key": "task", "view": "Sturges Formula"}], [{"disabled": null, "values": [{"y": 4, "x": 91.28421106934547}, {"y": 2, "x": 98.11816507577896}, {"y": 6, "x": 104.95211908221245}, {"y": 6, "x": 111.78607308864594}, {"y": 12, "x": 118.62002709507942}, {"y": 5, "x": 125.45398110151291}, {"y": 11, "x": 132.2879351079464}, {"y": 14, "x": 139.12188911437988}], "key": "task", "view": "Rice Rule"}]], "views": [{"id": 0, "name": "Square Root Choice"}, {"id": 1, "name": "Sturges Formula"}, {"id": 2, "name": "Rice Rule"}]}}, "table": {"styles": {"3": "rich", "4": "oblique", "5": "oblique"}, "rows": [["neutron.create_subnet (x2)", 24.124, 38.524, 46.594, 49.303, 56.396, 37.969, "100.0%", 60], ["neutron.create_port (x2)", 27.095, 38.581, 44.187, 45.094, 52.361, 38.434, "100.0%", 60], ["neutron.update_port (x2)", 29.201, 42.782, 48.103, 50.413, 52.637, 41.914, "100.0%", 60], ["total", 84.45, 118.439, 135.409, 136.939, 139.122, 118.318, "100.0%", 60], [" -> duration", 84.45, 118.439, 135.409, 136.939, 139.122, 118.318, "100.0%", 60], [" -> idle_duration", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "100.0%", 60]], "cols": ["Action", "Min (sec)", "Median (sec)", "90%ile (sec)", "95%ile (sec)", "Max (sec)", "Avg (sec)", "Success", "Count"]}, "errors": [], "iterations_count": 60, "load_duration": 496.204824924469, "complete_output": [[{"widget": "TextArea", "data": ["d4626ebd-6c46-4080-bc06-538d50da90c0"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["446e0f79-e311-4572-ba66-f45ddaf4eeeb"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["153c5d7d-8ad3-4989-a011-6eeaef4c3c2f"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["78167dba-68cd-43fb-9630-1435d6fbfc4f"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["2fe45d81-f54f-45ac-8c74-660b40e850cd"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["93271e02-976c-4bea-af12-b24c6310ccf3"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["92aeacff-7ef5-4f9e-88b5-632a1d9f89c2"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["d1ce6b79-8543-4727-bf83-f33e9b205be8"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["99c7a888-072f-4a83-8c92-31d985823be1"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["39d1bed8-3d16-4c55-98ba-80356fbacc65"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["526f194b-ca1c-4e7f-862f-d393fd01eb0e"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["fd2b0393-4790-457c-9b49-fc3bcd01d80d"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["64f389df-63ba-45bd-9031-f95e60b5f998"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["23d2ac51-109f-4062-81cc-bef0f8c8e15a"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["7ab68c0b-de59-42b5-a7de-87d3b564775f"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["5ef08681-23cb-42c4-a743-7e8fbf5654f0"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["0fee96d5-9c44-4818-a85d-e6ce79f28797"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["5f1d4312-e394-4704-9abe-a3b3492e5145"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["818ac27e-aed1-4f81-97dd-34e5c3226532"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["a5137bc4-a892-42a6-8114-e49688fdf5a3"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["e5ceda0a-8bfc-4e00-b094-d67a6266d46b"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["8af748c0-6e0c-4384-aac9-924348bf6903"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["8c797dbb-57fb-4e66-a960-575dd1d47980"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["d8660f48-0023-436f-9ba9-ca2e221b6d8a"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["04f3fb70-062e-4406-8995-b79f92e5988f"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["d711b756-c1b4-4902-8ac9-7a4550730c98"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["9485bed6-9ff7-4973-b2b8-3a4ed4d8d446"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["bd0bff8c-1820-41c3-864a-ee8ac28fa013"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["4fb49d57-4fa3-4063-9952-b9e9581cb4bc"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["e17e631c-54c8-40b0-b686-bd605ede818c"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["7b601be3-8392-45fc-b30f-9d83f8033a35"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["ee8e5745-11fc-45bf-83cf-591667b34cd0"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["31836e70-3be0-446f-a195-dd3c7be3a374"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["c7e82c15-7625-43eb-9ef6-72230c920851"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["30676f8f-e3e2-47b9-8f0f-b767952b7702"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["19a9df38-3116-4c94-b890-782e3f745a26"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["15bd7e82-1f6e-4540-8757-00b6ed54ccce"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["41106887-251d-4a05-8a65-76208ce83b00"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["4bb0468d-e9c9-47d5-b340-1928a13e55f6"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["d1bf97ab-6d01-455f-9c16-a5a65e5b368a"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["b6f0b4d5-4ef8-40fa-a79e-d4ab430527f4"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["feb0ea1e-00bf-4f6f-a28e-33e4a9e5608a"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["033071e8-9b32-4fc8-812e-4ad717391301"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["7e50a8fc-2f9a-4aaf-9d22-ee81155fc511"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["730b9212-74c8-43d3-9746-c0562d15d107"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["fa2fdca1-884e-4e4c-81c0-363139df8edf"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["8957f413-f62a-4abd-b517-82a9bade90d1"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["45e3b6e5-fc22-40d7-abb6-2b0a9d92b775"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["1e2490dc-9245-46cb-8b31-10fe4e5b3880"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["8fe45bcb-eb48-4594-93c6-89d0aa509ce4"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["278f492f-15b1-4a1b-99c1-2b271ebf3a77"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["feee9ead-d96d-4bd5-9ea6-ad1a4c2fae39"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["a1debb87-2b0a-4029-be0e-5eaddb888a2a"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["5b8921c0-8172-4cef-8602-594a5ad8b80c"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["d929c2e9-ed6c-47ae-928b-f2b9cf88f4c2"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["0883bb1e-d577-4b13-b385-f965dd602c41"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["5544f61e-5aa4-4727-b106-63d41a68754e"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["6df2e3d1-1116-4f75-84da-6c18c46ef279"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["d0c1c06b-c2ca-412e-9edf-a3b4ccdda60b"], "title": "OSProfiler Trace-ID"}], [{"widget": "TextArea", "data": ["8d63c7c0-1997-4f5c-9c04-495435528577"], "title": "OSProfiler Trace-ID"}]], "config": "{\n  \"version\": 2, \n  \"title\": \"A cropped version of a bigger task.\", \n  \"description\": \"Auto-generated task from a single workload (uuid=92692e43-2a9e-4343-87ca-09c0b54252a3)\", \n  \"subtasks\": [\n    {\n      \"title\": \"NeutronNetworks.create_and_bind_ports\", \n      \"description\": \"Bind a given number of ports.\", \n      \"scenario\": {\n        \"NeutronNetworks.create_and_bind_ports\": {\n          \"ports_per_network\": 2\n        }\n      }, \n      \"contexts\": {\n        \"networking_agents\": {}, \n        \"network\": {}, \n        \"users\": {\n          \"users_per_tenant\": 3, \n          \"tenants\": 2\n        }, \n        \"roles\": [\n          \"admin\"\n        ], \n        \"quotas\": {\n          \"neutron\": {\n            \"subnet\": -1, \n            \"network\": -1, \n            \"port\": -1\n          }\n        }\n      }, \n      \"runner\": {\n        \"constant\": {\n          \"concurrency\": 15, \n          \"times\": 60\n        }\n      }, \n      \"hooks\": [], \n      \"sla\": {\n        \"failure_rate\": {\n          \"max\": 0\n        }\n      }\n    }\n  ]\n}", "sla_success": true, "output_errors": [], "cls": "NeutronNetworks", "description": "Bind a given number of ports.", "met": "create_and_bind_ports", "has_output": true, "full_duration": 788.4149940013885, "load_profile": [["parallel iterations", [[0.0, 0], [5.061289214229584, 14.94144258955195], [10.122578428459168, 15], [15.183867642688751, 15], [20.245156856918335, 15], [25.306446071147917, 15], [30.367735285377503, 15], [35.42902449960709, 15], [40.49031371383667, 15], [45.55160292806625, 15], [50.612892142295834, 15], [55.67418135652542, 15], [60.735470570755005, 15], [65.79675978498459, 15], [70.85804899921418, 15], [75.91933821344375, 15], [80.98062742767334, 15], [86.04191664190293, 15], [91.1032058561325, 14.99864183132366], [96.1644950703621, 15], [101.22578428459167, 15], [106.28707349882126, 15], [111.34836271305085, 15], [116.40965192728042, 15], [121.47094114151001, 14.995636685280832], [126.5322303557396, 14.997440385288355], [131.59351956996917, 14.995235386759951], [136.65480878419876, 14.99161936629306], [141.71609799842835, 15], [146.77738721265794, 15], [151.8386764268875, 15], [156.8999656411171, 15], [161.96125485534668, 15], [167.02254406957627, 15], [172.08383328380586, 15], [177.14512249803542, 15], [182.206411712265, 15], [187.2677009264946, 14.998695202755068], [192.3289901407242, 15], [197.39027935495378, 15], [202.45156856918334, 15], [207.51285778341293, 15], [212.57414699764252, 15], [217.6354362118721, 14.998474698191599], [222.6967254261017, 14.998820646816705], [227.75801464033128, 15], [232.81930385456084, 15], [237.88059306879043, 14.998552564896025], [242.94188228302002, 14.998480633584677], [248.0031714972496, 14.99530910811049], [253.0644607114792, 14.998643197406198], [258.12574992570876, 15], [263.18703913993835, 14.995236328885845], [268.24832835416794, 14.997040075999664], [273.3096175683975, 15], [278.3709067826271, 14.998407524615974], [283.4321959968567, 15], [288.4934852110863, 15], [293.5547744253159, 15], [298.6160636395454, 15], [303.677352853775, 15], [308.7386420680046, 14.998588318573374], [313.7999312822342, 15], [318.8612204964638, 15], [323.92250971069336, 15], [328.98379892492295, 15], [334.04508813915254, 14.998490902756828], [339.10637735338213, 15], [344.1676665676117, 15], [349.2289557818413, 14.998581770798472], [354.29024499607084, 14.997537000297877], [359.35153421030043, 14.997400250725638], [364.41282342453, 15], [369.4741126387596, 15], [374.5354018529892, 15], [379.5966910672188, 14.998937046469841], [384.6579802814484, 14.99606657732232], [389.71926949567796, 14.998577813869753], [394.78055870990755, 14.997507370438804], [399.84184792413714, 14.99851266586478], [404.9031371383667, 15], [409.96442635259626, 15], [415.02571556682585, 15], [420.08700478105544, 15], [425.14829399528503, 14.55607513016797], [430.2095832095146, 14], [435.2708724237442, 14], [440.3321616379738, 14], [445.3934508522034, 13.008404239292805], [450.454740066433, 13], [455.51602928066256, 13], [460.5773184948921, 12.832460940167241], [465.6386077091217, 11.537508571910468], [470.6998969233513, 9.767936619628806], [475.76118613758086, 8.412576122654414], [480.82247535181045, 6.805616596505623], [485.88376456604004, 5.074974676705259], [490.94505378026963, 4.807427167851763], [496.0063429944992, 2.901056444120502], [501.0676322087288, 0.03921568627450698], [506.1289214229584, 0]]]], "name": "create_and_bind_ports", "created_at": "2019-07-29T00:24:06", "additive_output": [], "sla": [{"criterion": "failure_rate", "detail": "Failure rate criteria 0.00% <= 0.00% <= 0.00% - Passed", "success": true}]}];
+
+      $scope.location = {
+        /* #/path/hash/sub/div */
+        normalize: function(str) {
+          /* Remove unwanted characters from string */
+          if (typeof str !== "string") { return "" }
+          return str.replace(/[^\w\-\.]/g, "")
+        },
+        uri: function(obj) {
+          /* Getter/Setter */
+          if (! obj) {
+            var uri = {path: "", hash: "", sub: "", div: ""};
+            var arr = ["div", "sub", "hash", "path"];
+            angular.forEach($location.url().split("/"), function(value){
+              var v = $scope.location.normalize(value);
+              if (v) { var k = arr.pop(); if (k) { this[k] = v }}
+            }, uri);
+            return uri
+          }
+          var arr = [obj.path, obj.hash, obj.sub, obj.div], res = [];
+          for (var i in arr) { if (! arr[i]) { break }; res.push(arr[i]) }
+          return $location.url("/" + res.join("/"))
+        },
+        path: function(path, hash) {
+          /* Getter/Setter */
+          if (path === "") { return this.uri({}) }
+          path = this.normalize(path);
+          var uri = this.uri();
+          if (! path) { return uri.path }
+          uri.path = path;
+          var _hash = this.normalize(hash);
+          if (_hash || hash === "") { uri.hash = _hash }
+          return this.uri(uri)
+        },
+        hash: function(hash) {
+          /* Getter/Setter */
+          if (hash) { this.uri({path:this.uri().path, hash:hash}) }
+          return this.uri().hash
+        }
+      }
+
+      /* Dispatch */
+
+      $scope.route = function(uri) {
+        if (! $scope.scenarios_map) { return }
+
+        // Expand menu if there is only one menu group
+        if ($scope.nav.length === 1) {
+          $scope.nav_idx = $scope.nav[0].idx;
+        }
+
+        if (uri.path in $scope.scenarios_map) {
+          $scope.view = {is_scenario:true};
+          $scope.scenario = $scope.scenarios_map[uri.path];
+          $scope.nav_idx = $scope.nav_map[uri.path];
+          if ($scope.scenario.iterations.histogram.views.length) {
+            $scope.mainHistogram = $scope.scenario.iterations.histogram.views[0]
+          }
+          if ($scope.scenario.atomic.histogram.views.length) {
+            $scope.atomicHistogram = $scope.scenario.atomic.histogram.views[0]
+          }
+          $scope.outputIteration = 0;
+          $scope.showTab(uri);
+        } else {
+          $scope.scenario = null;
+          if (uri.path === "source") {
+            $scope.view = {is_source:true}
+          } else {
+            $scope.view = {is_main:true}
+          }
+        }
+      }
+
+      $scope.$on("$locationChangeSuccess", function (event, newUrl, oldUrl) {
+        $scope.route($scope.location.uri())
+      });
+
+      $scope.showNav = function(nav_idx) { $scope.nav_idx = nav_idx }
+
+      /* Tabs */
+
+      $scope.tabs = [
+        {
+          id: "overview",
+          name: "Overview",
+          visible: function(){ return !! $scope.scenario.iterations.pie.length }
+        },{
+          id: "details",
+          name: "Details",
+          visible: function(){ return !! $scope.scenario.atomic.pie.length }
+        },{
+          id: "output",
+          name: "Scenario Data",
+          visible: function(){ return $scope.scenario.has_output }
+        },{
+          id: "hooks",
+          name: "Hooks",
+          visible: function(){ return $scope.scenario.hooks.length }
+        },{
+          id: "failures",
+          name: "Failures",
+          visible: function(){ return !! $scope.scenario.errors.length }
+        },{
+          id: "task",
+          name: "Input task",
+          visible: function(){ return !! $scope.scenario.config }
+        }
+      ];
+      $scope.tabs_map = {};
+      angular.forEach($scope.tabs,
+                      function(tab){ this[tab.id] = tab }, $scope.tabs_map);
+
+      $scope.showTab = function(uri) {
+        $scope.tab = uri.hash in $scope.tabs_map ? uri.hash : "overview";
+        if (uri.hash === "output") {
+          if (typeof $scope.scenario.output === "undefined") {
+            var has_additive = !! $scope.scenario.additive_output.length;
+            var has_complete = !! ($scope.scenario.complete_output.length
+                                   && $scope.scenario.complete_output[0].length);
+            $scope.scenario.output = {
+              has_additive: has_additive,
+              has_complete: has_complete,
+              length: has_additive + has_complete,
+              active: has_additive ? "additive" : (has_complete ? "complete" : "")
+            }
+          }
+          if (uri.sub && $scope.scenario.output["has_" + uri.sub]) {
+            $scope.scenario.output.active = uri.sub
+          }
+        }
+        else if (uri.hash === "hooks") {
+          if ($scope.scenario.hooks.length) {
+            var hook_idx = parseInt(uri.sub);
+
+            if (isNaN(hook_idx) || ($scope.scenario.hooks.length - hook_idx) <= 0) {
+              hook_idx = 0
+            }
+
+            if ($scope.scenario.hook_idx === hook_idx) {
+              return
+            }
+
+            $scope.scenario.hooks.cur = $scope.scenario.hooks[hook_idx];
+            $scope.scenario.hook_idx = hook_idx;
+            if (typeof $scope.scenario.hooks.cur.active === "undefined") {
+              if ($scope.scenario.hooks.cur.additive.length) {
+                $scope.scenario.hooks.cur.active = "additive"
+              }
+              if ($scope.scenario.hooks.cur.complete.length) {
+                if (typeof $scope.scenario.hooks.cur.active === "undefined") {
+                  $scope.scenario.hooks.cur.active = "complete"
+                }
+                $scope.set_hook_run()
+              }
+            }
+          }
+        }
+      }
+
+      for (var i in $scope.tabs) {
+        if ($scope.tabs[i].id === $scope.location.hash()) {
+          $scope.tab = $scope.tabs[i].id
+        }
+        $scope.tabs[i].isVisible = function() {
+          if ($scope.scenario) {
+            if (this.visible()) { return true }
+            /* If tab should be hidden but is selected - show another one */
+            if (this.id === $scope.location.hash()) {
+              for (var i in $scope.tabs) {
+                var tab = $scope.tabs[i];
+                if (tab.id != this.id && tab.visible()) {
+                  $scope.tab = tab.id;
+                  return false
+                }
+              }
+            }
+          }
+          return false
+        }
+      }
+
+      $scope.set_hook_run = function(idx) {
+        if (typeof idx !== "undefined") {
+          $scope.scenario.hooks.cur.run_idx = idx
+        }
+        else if (typeof $scope.scenario.hooks.cur.run_idx === "undefined") {
+          $scope.scenario.hooks.cur.run_idx = 0
+        }
+        idx = $scope.scenario.hooks.cur.run_idx;
+        if (($scope.scenario.hooks.cur.complete.length - idx) > 0) {
+          $scope.scenario.hooks.cur.run = $scope.scenario.hooks.cur.complete[idx]
+        }
+      }
+
+      $scope.complete_hooks_as_dropdown = function() {
+        return $scope.scenario.hooks.cur.complete.length > 10
+      }
+
+      /* Other helpers */
+
+      $scope.showError = function(message) {
+          return (function (e) {
+            e.style.display = "block";
+            e.textContent = message
+          })(document.getElementById("page-error"))
+      }
+
+      $scope.compact_atomics = function() {
+        return ($scope.scenario && $scope.scenario.atomic.iter.length < 9)
+      }
+
+      /* Initialization */
+
+      angular.element(document).ready(function(){
+        if (! $scope.scenarios.length) {
+          return $scope.showError("No data...")
+        }
+
+        /* Compose data mapping */
+
+        $scope.nav = [];
+        $scope.nav_map = {};
+        $scope.scenarios_map = {};
+        var met = [], itr = 0, cls_idx = 0;
+        var prev_cls, prev_met;
+
+        for (var idx in $scope.scenarios) {
+          var sc = $scope.scenarios[idx];
+          if (! prev_cls) {
+            prev_cls = sc.cls
+          }
+          else if (prev_cls !== sc.cls) {
+            $scope.nav.push({cls:prev_cls, met:met, idx:cls_idx});
+            prev_cls = sc.cls;
+            met = [];
+            itr = 1;
+            cls_idx += 1
+          }
+
+          if (prev_met !== sc.met) { itr = 1 };
+          sc.ref = $scope.location.normalize(sc.cls+"."+sc.met+(itr > 1 ? "-"+itr : ""));
+          $scope.scenarios_map[sc.ref] = sc;
+          $scope.nav_map[sc.ref] = cls_idx;
+          met.push({name:sc.name, itr:itr, idx:idx, ref:sc.ref});
+          prev_met = sc.met;
+          itr += 1;
+        }
+
+        if (met.length) {
+          $scope.nav.push({cls:prev_cls, met:met, idx:cls_idx})
+        }
+
+        /* Start */
+
+        var uri = $scope.location.uri();
+        uri.path = $scope.location.path();
+        $scope.route(uri);
+        $scope.$digest()
+      })
+    };
+
+    if (typeof angular === "object") {
+      angular.module("App", [])
+        .controller("Controller", ["$scope", "$location", controllerFunction])
+        .directive("widget", widgetDirective)
+    }
+
+
+</script>
+  <style>
+    body { margin:0; padding:0 0 50px; font-size:14px; font-family:Helvetica,Arial,sans-serif }
+    a, a:active, a:focus, a:visited { text-decoration:none; outline:none }
+    p { margin:0; padding:5px 0 }
+    p.thesis { padding:10px 0 }
+    h1 { color:#666; margin:0 0 20px; font-size:30px; font-weight:normal }
+    h2, .h2 { color:#666; margin:24px 0 6px; font-size:25px; font-weight:normal }
+    h3, .h3 { color:#777; margin:12px 0 4px; font-size:18px; font-weight:normal }
+    table { border-collapse:collapse; border-spacing:0; width:100%; font-size:12px; margin:0 0 10px }
+    table th { text-align:left; padding:8px; color:#000; border:2px solid #ddd; border-width:0 0 2px 0 }
+    table th.sortable { cursor:pointer }
+    table td { text-align:left; border-top:1px solid #ddd; padding:8px; color:#333 }
+    table.compact td { padding:4px 8px }
+    table.striped tr:nth-child(odd) td { background:#f9f9f9 }
+    table.linked tbody tr:hover { background:#f9f9f9; cursor:pointer }
+    .pointer { cursor:pointer }
+    .rich, .rich td { font-weight:bold }
+    .oblique { font-style:italic }
+    .code { padding:10px; font-size:13px; color:#333; background:#f6f6f6; border:1px solid #e5e5e5; border-radius:4px }
+
+    .header { text-align:left; background:#333; font-size:18px; padding:13px 0; margin-bottom:20px; color:#fff; background-image:linear-gradient(to bottom, #444 0px, #222 100%) }
+    .header a, .header a:visited, .header a:focus { color:#999 }
+
+    .notify-error { padding:5px 10px; background:#fee; color:red }
+    .status-skip, .status-skip td { color:grey }
+    .status-pass, .status-pass td { color:green }
+    .status-fail, .status-fail td { color:red }
+    .capitalize { text-transform:capitalize }
+    
+    .aside { margin:0 20px 0 0; display:block; width:255px; float:left }
+    .aside > div { margin-bottom: 15px }
+    .aside > div div:first-child { border-top-left-radius:4px; border-top-right-radius:4px }
+    .aside > div div:last-child { border-bottom-left-radius:4px; border-bottom-right-radius:4px }
+    .navcls { color:#678; background:#eee; border:1px solid #ddd; margin-bottom:-1px; display:block; padding:8px 9px; font-weight:bold; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer }
+    .navcls.expanded { color:#469 }
+    .navcls.active { background:#428bca; background-image:linear-gradient(to bottom, #428bca 0px, #3278b3 100%); border-color:#3278b3; color:#fff }
+    .navmet { color:#555; background:#fff; border:1px solid #ddd; font-size:12px; display:block; margin-bottom:-1px; padding:8px 10px; text-align:left; text-overflow:ellipsis; white-space:nowrap; overflow:hidden; cursor:pointer }
+    .navmet:hover { background:#f8f8f8 }
+    .navmet.active, .navmet.active:hover { background:#428bca; background-image:linear-gradient(to bottom, #428bca 0px, #3278b3 100%); border-color:#3278b3; color:#fff }
+
+    .buttn { color:#555; background:#fff; border:1px solid #ddd; border-radius:5px; font-size:12px; margin-bottom:-1px; padding:5px 7px; text-align:left; text-overflow:ellipsis; white-space:nowrap; overflow:hidden; cursor:pointer }
+    .buttn:hover { background:#f8f8f8 }
+    .buttn.active, .bttn.active:hover { background:#428bca; background-image:linear-gradient(to bottom, #428bca 0px, #3278b3 100%); border-color:#3278b3; color:#fff; cursor:default }
+
+    .tabs { list-style:outside none none; margin:0 0 5px; padding:0; border-bottom:1px solid #ddd }
+    .tabs:after { clear:both }
+    .tabs li { float:left; margin-bottom:-1px; display:block; position:relative }
+    .tabs li div { border:1px solid transparent; border-radius:4px 4px 0 0; line-height:20px; margin-right:2px; padding:10px 15px; color:#428bca }
+    .tabs li div:hover { border-color:#eee #eee #ddd; background:#eee; cursor:pointer; }
+    .tabs li.active div { background:#fff; border-color:#ddd #ddd transparent; border-style:solid; border-width:1px; color:#555; cursor:default }
+    .failure-mesg { color:#900 }
+    .failure-trace { color:#333; white-space:pre; overflow:auto }
+
+    .link { color:#428BCA; padding:5px 15px 5px 5px; text-decoration:underline; cursor:pointer }
+    .link.active { color:#333; text-decoration:none; cursor:default }
+
+    .chart { padding:0; margin:0; width:890px }
+    .chart svg { height:300px; padding:0; margin:0; overflow:visible; float:right }
+    .chart.lower svg { height:180px }
+    .chart-label-y { font-size:12px; position:relative; top:5px; padding:0; margin:0 }
+
+    .expandable { cursor:pointer }
+    .clearfix { clear:both }
+    .sortable > .arrow { display:inline-block; width:12px; height:inherit; color:#c90 }
+    .content-main { margin:0 5px; display:block; float:left }
+
+    .content-wrap {  margin:0 auto; padding:0 5px;  }
+    
+    @media only screen and (min-width: 320px)  { .content-wrap { width:900px  } .content-main { width:600px } }
+    @media only screen and (min-width: 900px)  { .content-wrap { width:880px  } .content-main { width:590px } }
+    @media only screen and (min-width: 1000px) { .content-wrap { width:980px  } .content-main { width:690px } }
+    @media only screen and (min-width: 1100px) { .content-wrap { width:1080px } .content-main { width:790px } }
+    @media only screen and (min-width: 1200px) { .content-wrap { width:1180px } .content-main { width:890px } }
+
+  </style>
+</head>
+<body ng-controller="Controller">
+
+  <div class="header" id="page-header">
+    <div class="content-wrap">
+      <a href="https://github.com/openstack/rally">Rally</a>&nbsp;
+      <span>task results</span>
+    </div>
+  </div>
+
+  <div class="content-wrap" id="page-content">
+    
+
+    <p id="page-error" class="notify-error" style="display:none"></p>
+
+    <div id="content-nav" class="aside" ng-show="scenarios.length" ng-cloack>
+      <div>
+        <div class="navcls"
+             ng-class="{active:view.is_main}"
+             ng-click="location.path('')">Task overview</div>
+        <div class="navcls"
+             ng-class="{active:view.is_source}"
+             ng-click="location.path('source', '')">Input file</div>
+      </div>
+      <div>
+        <div class="navcls" title="{{n.cls}}"
+             ng-repeat-start="n in nav track by $index"
+             ng-click="showNav(n.idx)"
+             ng-class="{expanded:n.idx==nav_idx}">
+                <span ng-hide="n.idx==nav_idx">&#9658;</span>
+                <span ng-show="n.idx==nav_idx">&#9660;</span>
+                {{n.cls}}</div>
+        <div class="navmet" title="{{m.name}}"
+             ng-show="n.idx==nav_idx"
+             ng-class="{active:m.ref==scenario.ref}"
+             ng-click="location.path(m.ref)"
+             ng-repeat="m in n.met track by $index"
+             ng-repeat-end>{{m.name}}</div>
+      </div>
+    </div>
+
+    <div id="content-main" class="content-main" ng-show="scenarios.length" ng-cloak>
+
+      <div ng-show="view.is_main">
+        <h1>Task overview</h1>
+        <table class="linked compact"
+               ng-init="ov_srt='ref'; ov_dir=false">
+          <thead>
+            <tr>
+              <th class="sortable"
+                  title="Scenario name, with optional suffix of call number"
+                  ng-click="ov_srt='ref'; ov_dir=!ov_dir">
+                Scenario
+                <span class="arrow">
+                  <b ng-show="ov_srt=='ref' && !ov_dir">&#x25b4;</b>
+                  <b ng-show="ov_srt=='ref' && ov_dir">&#x25be;</b>
+                </span>
+              <th class="sortable"
+                  title="How long the scenario run, without context duration"
+                  ng-click="ov_srt='load_duration'; ov_dir=!ov_dir">
+                Load duration (s)
+                <span class="arrow">
+                  <b ng-show="ov_srt=='load_duration' && !ov_dir">&#x25b4;</b>
+                  <b ng-show="ov_srt=='load_duration' && ov_dir">&#x25be;</b>
+                </span>
+              <th class="sortable"
+                  title="Scenario duration plus context duration"
+                  ng-click="ov_srt='full_duration'; ov_dir=!ov_dir">
+                Full duration (s)
+                <span class="arrow">
+                  <b ng-show="ov_srt=='full_duration' && !ov_dir">&#x25b4;</b>
+                  <b ng-show="ov_srt=='full_duration' && ov_dir">&#x25be;</b>
+                </span>
+              <th class="sortable" title="Number of iterations"
+                  ng-click="ov_srt='iterations_count'; ov_dir=!ov_dir">
+                Iterations
+                <span class="arrow">
+                  <b ng-show="ov_srt=='iterations_count' && !ov_dir">&#x25b4;</b>
+                  <b ng-show="ov_srt=='iterations_count' && ov_dir">&#x25be;</b>
+                </span>
+              <th class="sortable" title="Scenario runner type"
+                  ng-click="ov_srt='runner'; ov_dir=!ov_dir">
+                Runner
+                <span class="arrow">
+                  <b ng-show="ov_srt=='runner' && !ov_dir">&#x25b4;</b>
+                  <b ng-show="ov_srt=='runner' && ov_dir">&#x25be;</b>
+                </span>
+              <th class="sortable" title="Number of errors occurred"
+                  ng-click="ov_srt='errors.length'; ov_dir=!ov_dir">
+                Errors
+                <span class="arrow">
+                  <b ng-show="ov_srt=='errors.length' && !ov_dir">&#x25b4;</b>
+                  <b ng-show="ov_srt=='errors.length' && ov_dir">&#x25be;</b>
+                </span>
+              <th class="sortable" title="Number of hooks"
+                  ng-click="ov_srt='hooks.length'; ov_dir=!ov_dir">
+                Hooks
+                <span class="arrow">
+                  <b ng-show="ov_srt=='hooks.length' && !ov_dir">&#x25b4;</b>
+                  <b ng-show="ov_srt=='hooks.length' && ov_dir">&#x25be;</b>
+                </span>
+              <th class="sortable" title="Whether SLA check is successful"
+                  ng-click="ov_srt='sla_success'; ov_dir=!ov_dir">
+                Success (SLA)
+                <span class="arrow">
+                  <b ng-show="ov_srt=='sla_success' && !ov_dir">&#x25b4;</b>
+                  <b ng-show="ov_srt=='sla_success' && ov_dir">&#x25be;</b>
+                </span>
+            <tr>
+          </thead>
+          <tbody>
+            <tr ng-repeat="sc in scenarios | orderBy:ov_srt:ov_dir"
+                ng-click="location.path(sc.ref)">
+              <td>{{sc.ref}}
+              <td>{{sc.load_duration | number:3}}
+              <td>{{sc.full_duration | number:3}}
+              <td>{{sc.iterations_count}}
+              <td>{{sc.runner}}
+              <td>{{sc.errors.length}}
+              <td>{{sc.hooks.length}}
+              <td>
+                <span ng-show="sc.sla_success" class="status-pass">&#x2714;</span>
+                <span ng-hide="sc.sla_success" class="status-fail">&#x2716;</span>
+            <tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div ng-show="view.is_source">
+        <h1>Input file</h1>
+        <pre class="code">{{source}}</pre>
+      </div>
+
+      <div ng-show="view.is_scenario">
+        <h1>{{scenario.cls}}.<wbr>{{scenario.name}} ({{scenario.full_duration | number:3}}s)</h1>
+        <div ng-show="scenario.description" style="margin-bottom: 20px;">
+            <i>{{scenario.description}}</i>
+        </div>
+        <ul class="tabs">
+          <li ng-repeat="t in tabs"
+              ng-show="t.isVisible()"
+              ng-class="{active:t.id == tab}"
+              ng-click="location.hash(t.id)">
+            <div>{{t.name}}</div>
+          </li>
+          <div class="clearfix"></div>
+        </ul>
+        <div ng-include="tab"></div>
+
+        <script type="text/ng-template" id="overview">
+          <p class="thesis">
+            Load duration: <b>{{scenario.load_duration | number:3}} s</b> &nbsp;
+            Full duration: <b>{{scenario.full_duration | number:3}} s</b> &nbsp;
+            Iterations: <b>{{scenario.iterations_count}}</b> &nbsp;
+            Failures: <b>{{scenario.errors.length}}</b> &nbsp;
+            Started at: <b>{{scenario.created_at}}</b>
+          </p>
+
+          <div ng-show="scenario.sla.length">
+            <h2>Service-level agreement</h2>
+            <table class="striped">
+              <thead>
+                <tr>
+                  <th>Criterion
+                  <th>Detail
+                  <th>Success
+                <tr>
+              </thead>
+              <tbody>
+                <tr class="rich"
+                    ng-repeat="row in scenario.sla track by $index"
+                    ng-class="{'status-fail':!row.success, 'status-pass':row.success}">
+                  <td>{{row.criterion}}
+                  <td>{{row.detail}}
+                  <td class="capitalize">{{row.success}}
+                <tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div widget="Table"
+               data="scenario.table"
+               lastrow-class="rich"
+               title="Total durations">
+          </div>
+
+          <div widget="StackedArea"
+               data="scenario.iterations.iter"
+               name-x="Iteration sequence number"
+               controls="true"
+               guide="true">
+          </div>
+
+          <div widget="StackedArea"
+               data="scenario.load_profile"
+               title="Load Profile"
+               title-class="h3"
+               name-x="Timeline (seconds)"
+               format-y="d"
+               format-x=",.2f"
+               class="lower">
+          </div>
+
+          <div widget="Pie"
+               data="scenario.iterations.pie"
+               title="Distribution"
+               title-class="h3"
+               style="float:left; width:40%; margin-top:15px">
+          </div>
+
+          <div widget="Histogram"
+               ng-if="scenario.iterations.histogram.data.length"
+               data="scenario.iterations.histogram.data[mainHistogram.id]"
+               style="float:left; width:59%; margin-top:15px; position:relative; top:40px">
+          </div>
+
+          <select ng-model="mainHistogram"
+                  ng-show="scenario.iterations.histogram.data.length"
+                  ng-options="i.name for i in scenario.iterations.histogram.views track by i.id"
+                  style="float:right; margin:45px 35px 0">
+          </select>
+
+          <div class="clearfix"></div>
+
+        </script>
+
+        <script type="text/ng-template" id="details">
+
+          <div widget="StackedArea"
+               data="scenario.atomic.iter"
+               title="Atomic Action Durations"
+               name-x="Iteration sequence number"
+               controls="true"
+               guide="true">
+          </div>
+
+          <div widget="Pie"
+               data="scenario.atomic.pie"
+               title="Distribution"
+               title-class="h3"
+               style="float:left; margin-top:15px"
+               ng-style="compact_atomics() ? {width:'40%'} : {}">
+          </div>
+
+          <div widget="Histogram" data="scenario.atomic.histogram.data[atomicHistogram.id]"
+               ng-if="scenario.atomic.histogram.data.length"
+               style="float:left; position:relative; top:40px"
+               ng-style="compact_atomics() ? {width:'59%', 'margin-top':'15px'} : {}">
+          </div>
+
+          <select ng-show="scenario.atomic.histogram.data.length"
+                  ng-model="atomicHistogram"
+                  ng-options="i.name for i in scenario.atomic.histogram.views track by i.id"
+                  style="float:right; margin:45px 35px 0">
+          </select>
+
+          <div class="clearfix"></div>
+
+        </script>
+
+        <script type="text/ng-template" id="output">
+
+          <div style="padding:10px 0 0">
+            <span class="link"
+                  ng-click="location.hash('output/additive')"
+                  ng-class="{active:scenario.output.active === 'additive'}"
+                  ng-if="scenario.output.has_additive">Aggregated</span>
+            <span class="link"
+                  ng-click="location.hash('output/complete')"
+                  ng-class="{active:scenario.output.active === 'complete'}"
+                  ng-if="scenario.output.has_complete">Per iteration</span>
+          </div>
+
+          <div ng-repeat="chart in scenario.additive_output"
+               ng-if="scenario.output.active === 'additive'">
+            <div widget="{{chart.widget}}"
+                 title="{{chart.title}}"
+                 description="{{chart.description}}"
+                 name-x="{{chart.axis_label}}"
+                 name-y="{{chart.label}}"
+                 data="chart.data">
+            </div>
+          </div>
+
+          <div ng-if="scenario.output.active === 'complete'" style="padding:10px 0 0">
+            <select ng-model="outputIteration">
+              <option ng-repeat="i in scenario.complete_output track by $index"
+                      value="{{$index}}">
+                Iteration {{$index}}
+            </select>
+
+            <div ng-repeat="chart in scenario.complete_output[outputIteration]">
+              <div widget="{{chart.widget}}"
+                   title="{{chart.title}}"
+                   description="{{chart.description}}"
+                   name-x="{{chart.axis_label}}"
+                   name-y="{{chart.label}}"
+                   data="chart.data">
+              </div>
+            </div>
+          </div>
+        </script>
+
+        <script type="text/ng-template" id="hooks">
+
+          <div style="padding:15px 0">
+            <span ng-repeat="h in scenario.hooks track by $index"
+                  class="buttn"
+                  title="{{h.desc}}"
+                  style="margin:0 10px 0 0"
+                  ng-click="location.hash('hooks/'+$index)"
+                  ng-class="{active:scenario.hook_idx===$index}">
+              {{h.name}}
+            </span>
+          </div>
+
+          <table class="striped" style="margin:5px 0 25px">
+            <thead>
+              <tr>
+                <th>Plugin
+                <th>Description
+            </thead>
+            <tbody>
+              <tr>
+                <td>{{scenario.hooks.cur.name}}
+                <td>{{scenario.hooks.cur.desc}}
+            </tbody>
+          </table>
+
+          <div>
+            <span class="link"
+                  ng-click="scenario.hooks.cur.active = 'additive'"
+                  ng-class="{active:scenario.hooks.cur.active === 'additive'}"
+                  ng-if="scenario.hooks.cur.additive.length">Aggregated</span>
+            <span class="link"
+                  ng-click="scenario.hooks.cur.active = 'complete'"
+                  ng-class="{active:scenario.hooks.cur.active === 'complete'}"
+                  ng-if="scenario.hooks.cur.complete.length">Per hook run</span>
+          </div>
+
+          <div ng-repeat="chart in scenario.hooks.cur.additive"
+               ng-if="scenario.hooks.cur.active === 'additive'">
+            <div widget="{{chart.widget}}"
+                 title="{{chart.title}}"
+                 description="{{chart.description}}"
+                 name-x="{{chart.axis_label}}"
+                 name-y="{{chart.label}}"
+                 data="chart.data">
+            </div>
+          </div>
+
+          <div ng-if="scenario.hooks.cur.active === 'complete'" style="padding:10px 0 0">
+
+            <select ng-if="complete_hooks_as_dropdown()"
+                    ng-model="scenario.hooks.cur.run_idx"
+                    ng-change="set_hook_run()">
+              <option ng-repeat="h in scenario.hooks.cur.complete track by $index"
+                      ng-selected="scenario.hooks.cur.run_idx == $index"
+                      value="{{$index}}">
+                {{h.triggered_by}}
+            </select>
+
+            <div ng-if="! complete_hooks_as_dropdown()"
+                 style="border:#ccc solid; border-width:1px 0 0; padding:5px 0 0">
+              <span ng-repeat="h in scenario.hooks.cur.complete track by $index"
+                    class="link"
+                    ng-class="{active:scenario.hooks.cur.run_idx == $index}"
+                    ng-click="set_hook_run($index)">
+                {{h.triggered_by}}
+              </span>
+            </div>
+
+            <table class="striped" style="margin:15px 0 15px">
+              <thead>
+                <tr>
+                  <th>Status
+                  <th>Triggered by
+                  <th>Started at
+                  <th>Finished at
+              </thead>
+              <tbody>
+                <tr>
+                  <td ng-style="scenario.hooks.cur.run.status === 'success' ? {color:'green'} : {color:'red'}">
+                    <b>{{scenario.hooks.cur.run.status}}</b>
+                  <td>{{scenario.hooks.cur.run.triggered_by}}
+                  <td>{{scenario.hooks.cur.run.started_at}}
+                  <td>{{scenario.hooks.cur.run.finished_at}}
+              </tbody>
+            </table>
+
+            <div ng-repeat="chart in scenario.hooks.cur.run.charts">
+              <div widget="{{chart.widget}}"
+                   title="{{chart.title}}"
+                   description="{{chart.description}}"
+                   name-x="{{chart.axis_label}}"
+                   name-y="{{chart.label}}"
+                   data="chart.data">
+              </div>
+            </div>
+          </div>
+        </script>
+
+        <script type="text/ng-template" id="failures">
+          <h2>Task failures (<ng-pluralize
+            count="scenario.errors.length"
+            when="{'1': '1 iteration', 'other': '{} iterations'}"></ng-pluralize> failed)
+          </h2>
+          <table class="striped">
+            <thead>
+              <tr>
+                <th>
+                <th>Timestamp
+                <th>Iteration
+                <th>Exception type
+                <th>Exception message
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="expandable"
+                  ng-repeat-start="i in scenario.errors track by $index"
+                  ng-click="i.expanded = ! i.expanded">
+                <td>
+                  <span ng-hide="i.expanded">&#9658;</span>
+                  <span ng-show="i.expanded">&#9660;</span>
+                <td>{{i.timestamp}}
+                <td>{{i.iteration}}
+                <td>{{i.type}}
+                <td class="failure-mesg">{{i.message}}
+              </tr>
+              <tr ng-show="i.expanded" ng-repeat-end>
+                <td colspan="4" class="failure-trace">{{i.traceback}}
+              </tr>
+            </tbody>
+          </table>
+        </script>
+
+        <script type="text/ng-template" id="task">
+          <h2>The Workload Configuration</h2>
+          <pre class="code">{{scenario.config}}</pre>
+        </script>
+      </div>
+
+    </div>
+    <div class="clearfix"></div>
+
+
+  </div>
+
+  <script type="text/javascript">
+    if (! window.angular) {(function(f){
+      f(document.getElementById("content-nav"), "none");
+      f(document.getElementById("content-main"), "none");
+      f(document.getElementById("page-error"), "block").textContent = "Failed to load AngularJS framework"
+    })(function(e, s){e.style.display = s; return e})}
+</script>
+</body>
+</html>
